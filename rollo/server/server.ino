@@ -69,6 +69,8 @@ void setup(void){
   Serial.begin(115200);
   EEPROM.begin(512);
 
+  Serial.println('START APP');
+
   if(getData(84,86,"0") == "1"){
     // Yay I know you
   } else {

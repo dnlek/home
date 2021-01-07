@@ -23,7 +23,7 @@ bool runServo = false;
 
 void setup() {
   Serial.begin(9600);
-  Serial.println("SETUP RECEIVER");
+  Serial.println("SETUP RECEIVER - start");
   
   radio.begin();
   radio.openReadingPipe(0, address);
@@ -57,14 +57,14 @@ void wakeUp() {
 
 void loop() {
 
-  // Serial.println("Battery level: " + getBatteryLevel());
-  // delay(500);
-  // Serial.println("Vcc: " + readVcc());
+//   Serial.println("Battery level: " + getBatteryLevel());
+//   delay(500);
+//   Serial.println("Vcc: " + readVcc());
   attachInterrupt(digitalPinToInterrupt(buttonPin), wakeUp, FALLING);
   
   Serial.println("Enter sleep");
   delay(500);
-  // enterSleep();
+  enterSleep();
   LowPower.powerDown(SLEEP_4S, ADC_OFF, BOD_OFF);  
   delay(500);
   Serial.println("Wake up");
@@ -153,11 +153,10 @@ int getBatteryLevel() {
   return result;
 }
 
-//void enterSleep() {
-//  set_sleep_mode(SLEEP_MODE_PWR_SAVE);
-//  sleep_enable();
-//  
-//  sleep_disable();
-//  power_all_enable();
-//  
-//}
+void enterSleep() {
+  set_sleep_mode(SLEEP_MODE_PWR_SAVE);
+  sleep_enable();
+  
+  sleep_disable();
+  power_all_enable();  
+}
