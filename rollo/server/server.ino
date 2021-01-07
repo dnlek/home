@@ -14,7 +14,14 @@
           - Allowed values: 1000 - 9999 (milliseconds)
     - Version: /version
   https://github.com/vietquocnguyen/NodeMCU-ESP8266-Servo-Smart-Blinds    
- */
+*/
+
+/*
+Libraries
+Esp8266
+ArduinoJson 6
+RF24
+*/
 
 #include <ESP8266WiFi.h>
 #include <WiFiClient.h>
@@ -111,32 +118,32 @@ void setup(void){
 
 
   server.on("/version", [](){
-    DynamicJsonBuffer jsonBuffer;
-    JsonObject& json = jsonBuffer.createObject();
+    DynamicJsonDocument jsonBuffer(1024);
+    JsonObject json = jsonBuffer.as<JsonObject>();
     Serial.println("version");
     json["version"] = VERSION;
     String output;
-    json.prettyPrintTo(output);
+    serializeJsonPretty(json, output);
     server.send(200, "application/json", output);
   });
 
   server.on("/status", [](){
-    DynamicJsonBuffer jsonBuffer;
-    JsonObject& json = jsonBuffer.createObject();
+    DynamicJsonDocument jsonBuffer(1024);
+    JsonObject json = jsonBuffer.as<JsonObject>();
     Serial.println("status");
     json["isOpen"] = getData(81,83,DEFAULT_LAST_ACTION) == "1";;
     String output;
-    json.prettyPrintTo(output);
+    serializeJsonPretty(json, output);
     server.send(200, "application/json", output);
   });
 
   server.on("/clear", [](){
-    DynamicJsonBuffer jsonBuffer;
-    JsonObject& json = jsonBuffer.createObject();
+    DynamicJsonDocument jsonBuffer(1024);
+    JsonObject json = jsonBuffer.as<JsonObject>();
     Serial.println("clear");
     json["message"] = "Clearing EEPROM data and resetting";
     String output;
-    json.prettyPrintTo(output);
+    serializeJsonPretty(json, output);
     server.send(200, "application/json", output);
 
     clearEEPROM();
@@ -145,12 +152,12 @@ void setup(void){
   });
 
   server.on("/reset", [](){
-    DynamicJsonBuffer jsonBuffer;
-    JsonObject& json = jsonBuffer.createObject();
+    DynamicJsonDocument jsonBuffer(1024);
+    JsonObject json = jsonBuffer.as<JsonObject>();
     json["message"] = "resetting";
     Serial.println("Resetting");
     String output;
-    json.prettyPrintTo(output);
+    serializeJsonPretty(json, output);
     server.send(200, "application/json", output);
     WiFi.disconnect();
     ESP.reset();
@@ -165,8 +172,8 @@ void setup(void){
   });
 
   server.on("/config", [](){
-    DynamicJsonBuffer jsonBuffer;
-    JsonObject& json = jsonBuffer.createObject();
+    DynamicJsonDocument jsonBuffer(1024);
+    JsonObject json = jsonBuffer.as<JsonObject>();
 
     int theSpeed = getData(51,55, DEFAULT_SPEED).toInt();
     if(server.hasArg("speed")){
@@ -184,13 +191,13 @@ void setup(void){
 
 
     String output;
-    json.prettyPrintTo(output);
+    serializeJsonPretty(json, output);
     server.send(200, "application/json", output);
   });
 
   server.on("/wifi", [](){
-    DynamicJsonBuffer jsonBuffer;
-    JsonObject& json = jsonBuffer.createObject();
+    DynamicJsonDocument jsonBuffer(1024);
+    JsonObject json = jsonBuffer.as<JsonObject>();
     bool resetMe = false;
 
     String aSsid = getData(0,25, DEFAULT_WIFI_SSID);
@@ -228,7 +235,7 @@ void setup(void){
     }
 
     String output;
-    json.prettyPrintTo(output);
+    serializeJsonPretty(json, output);
     server.send(200, "application/json", output);
 
     if(resetMe){
@@ -237,8 +244,8 @@ void setup(void){
   });
 
   server.on("/msg", [](){
-    DynamicJsonBuffer jsonBuffer;
-    JsonObject& json = jsonBuffer.createObject();
+    DynamicJsonDocument jsonBuffer(1024);
+    JsonObject json = jsonBuffer.as<JsonObject>();
     Serial.println("message");
     String msg = "hello world!!!";
     if(server.hasArg("text")) {
@@ -248,7 +255,7 @@ void setup(void){
     json["message"] = "Sent message to radio";
     json["text"] = msg;
     String output;
-    json.prettyPrintTo(output);
+    serializeJsonPretty(json, output);
     server.send(200, "application/json", output);
   });
 
@@ -278,8 +285,8 @@ String macToStr(const uint8_t* mac){
 }
 
 void openOrClose(int direction) {
-  DynamicJsonBuffer jsonBuffer;
-  JsonObject& json = jsonBuffer.createObject();
+  DynamicJsonDocument jsonBuffer(1024);
+  JsonObject json = jsonBuffer.as<JsonObject>();
 
   bool toSpin = true;
 
@@ -308,7 +315,7 @@ void openOrClose(int direction) {
   json["calulatedDutyCycle"] = dutyCycle;
 
   String output;
-  json.prettyPrintTo(output);
+  serializeJsonPretty(json, output);
   server.send(200, "application/json", output);
 
   if(toSpin){
@@ -379,9 +386,13 @@ String setData(int startingIndex, int endingIndex, String settingValue){
   return settingValue;
 }
 
-void loop(void){
+void presentation() {
+    // Present locally attached sensors here
+}
+
+void loop() {
   server.handleClient();
-/*
+  /*
   if (radio.available()) {
     Serial.print("Have message: ");
     char text[32] = "";
@@ -389,7 +400,7 @@ void loop(void){
     Serial.println(text);
     radio.flush_rx();
   }
-*/
+  */
 }
 
 void clearEEPROM(){
