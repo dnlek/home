@@ -28,7 +28,6 @@ RF24
 #include <ESP8266WebServer.h>
 #include <ESP8266mDNS.h>
 #include <ESP8266HTTPUpdateServer.h>
-#include <Servo.h>
 #include <EEPROM.h>
 #include <math.h>
 #include <ArduinoJson.h>
@@ -39,11 +38,12 @@ RF24
 #define VERSION 0
 #define DEFAULT_WIFI_SSID ""
 #define DEFAULT_WIFI_PASSWORD ""
-#define DEFAULT_HOSTNAME "esp8266-smart-blinds"
+#define DEFAULT_HOSTNAME "esp-bridge"
 #define DEFAULT_SPEED "2" // 1 or 2
 #define DEFAULT_DURATION "3500" // 9 characters 1000-9999
 #define DEFAULT_LAST_ACTION "0"
-
+#define VER "2" // EEPROM version 
+#define DEFAULT_AP_SSID "esp-bridge-123"
 
 RF24 radio(D2, D8); //CE, CSN
 const byte address[6] = "00001";
@@ -51,101 +51,132 @@ const byte address[6] = "00001";
 char host[25];
 char ssid[25];
 char password[25];
-int servoPin = 2;
 int tryCount = 0;
-Servo Servo1;
 
 ESP8266WebServer server(80);
 ESP8266HTTPUpdateServer httpUpdater;
 
 void setup(void){
-  
-  // Avoid Randomly Vibrating when turning on
-  Servo1.attach(servoPin);
-  Servo1.write(90); 
-  delay(200); 
-  Servo1.detach();
 
   Serial.begin(115200);
   EEPROM.begin(512);
 
   Serial.println('START APP');
 
-  if(getData(84,86,"0") == "1"){
+  if(getData(84,86,"0") == VER) {
     // Yay I know you
   } else {
     // I don't know you
     clearEEPROM();
-    setData(84, 86, "1"); // Getting to know you
+    setData(84, 86, VER); // Getting to know you
   }
 
   String theSSID = getData(0,25, DEFAULT_WIFI_SSID);
   String thePassword = getData(26,50, DEFAULT_WIFI_PASSWORD);
   String theHostname = getData(61,80, DEFAULT_HOSTNAME);
 
-  Serial.println("Trying " + theSSID + " / " + thePassword + " / " + theHostname);
-  
-  theSSID.toCharArray(ssid, 25);
-  thePassword.toCharArray(password, 25);
-  theHostname.toCharArray(host, 25);
-  
-  
-  WiFi.begin(ssid, password);
-  Serial.println("Started");
+  if (theSSID.length() == 0) {
 
-  // Wait for connection
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(1000);
-    tryCount = tryCount + 1;
-    Serial.print("Try #" + String(tryCount) + " ");
-    if(tryCount > 30){
-      Serial.println("Giving up, reverting back to default Wifi settings");
-      setData(0,25, DEFAULT_WIFI_SSID);
-      setData(26,50, DEFAULT_WIFI_PASSWORD);
-      setData(61,80, DEFAULT_HOSTNAME);
+    Serial.print("Setting soft-AP ... ");
+    Serial.println(WiFi.softAP(DEFAULT_AP_SSID) ? "Ready" : "Failed!");
+
+    Serial.print("Soft-AP IP address: ");
+    Serial.println(WiFi.softAPIP());
+
+  } else {
+    Serial.println("Trying " + theSSID + " / " + thePassword + " / " + theHostname);
+    
+    theSSID.toCharArray(ssid, 25);
+    thePassword.toCharArray(password, 25);
+    theHostname.toCharArray(host, 25);
+    
+    WiFi.begin(ssid, password);
+    Serial.println("Started");
+
+    // Wait for connection
+    while (WiFi.status() != WL_CONNECTED) {
       delay(1000);
-      WiFi.disconnect();
-      ESP.reset();
+      tryCount = tryCount + 1;
+      Serial.println("Try #" + String(tryCount) + " ");
+      if(tryCount > 30){
+        Serial.println("Giving up, reverting back to default Wifi settings");
+        setData(0,25, DEFAULT_WIFI_SSID);
+        setData(26,50, DEFAULT_WIFI_PASSWORD);
+        setData(61,80, DEFAULT_HOSTNAME);
+        delay(1000);
+        WiFi.disconnect();
+        ESP.reset();
+      }
+    }
+    Serial.println("");
+    Serial.print("Connected to ");
+    Serial.println(ssid);
+    Serial.print("IP address: ");
+    Serial.println(WiFi.localIP());
+
+    if (MDNS.begin(host)) {
+      Serial.println("MDNS responder started");
     }
   }
-  Serial.println("");
-  Serial.print("Connected to ");
-  Serial.println(ssid);
-  Serial.print("IP address: ");
-  Serial.println(WiFi.localIP());
 
-  if (MDNS.begin(host)) {
-    Serial.println("MDNS responder started");
-  }
+  server.on("/", []() {
+    if (server.method() == HTTP_GET) {
+      server.send(200, "text/html", "<html><head><title>ESP Bridge</title><meta name='viewport' content='width=device-width, initial-scale=1'></head><body><form action='/' method='POST'><input type='text' name='SSID' placeholder='SSID' /><br/><input type='password' name='PASSWORD' placeholder='Password' /><br/><input type='text' name='HOST' placeholder='Hostname' value='esp-bridge' /><br/><button>Save</button></form></body></html>");
+    } else {
+      Serial.println('New settings');
+      if(server.hasArg("SSID")){
+        Serial.println("New settings - SSID: " + String(server.arg("SSID")));
+        setData(0,25, server.arg("SSID"));
+      }
+      if(server.hasArg("PASSWORD")){
+        Serial.println("New settings - PASSWORD");
+        setData(26,50, server.arg("PASSWORD"));
+      }
 
+      if(server.hasArg("HOST")){
+        Serial.println("New settings - HOST");
+        setData(61,80, server.arg("HOST"));
+      }
+
+      server.send(200, "text/html", "<html><body>Changes detected, restarting device</body></html>");
+      delay(1000);
+      ESP.reset();
+    }
+  });
 
   server.on("/version", [](){
     DynamicJsonDocument jsonBuffer(1024);
+    deserializeJson(jsonBuffer, "{}");
     JsonObject json = jsonBuffer.as<JsonObject>();
     Serial.println("version");
     json["version"] = VERSION;
     String output;
-    serializeJsonPretty(json, output);
+    serializeJsonPretty(jsonBuffer, output);
     server.send(200, "application/json", output);
   });
 
   server.on("/status", [](){
     DynamicJsonDocument jsonBuffer(1024);
+    deserializeJson(jsonBuffer, "{}");
     JsonObject json = jsonBuffer.as<JsonObject>();
     Serial.println("status");
-    json["isOpen"] = getData(81,83,DEFAULT_LAST_ACTION) == "1";;
+    json["isOpen"] = getData(81,83,DEFAULT_LAST_ACTION) == "1";
     String output;
-    serializeJsonPretty(json, output);
-    server.send(200, "application/json", output);
+    serializeJson(jsonBuffer, output);
+    Serial.print("Output: ");
+    Serial.println(output.c_str());
+
+    server.send(200, "application/json", output.c_str());
   });
 
   server.on("/clear", [](){
     DynamicJsonDocument jsonBuffer(1024);
+    deserializeJson(jsonBuffer, "{}");
     JsonObject json = jsonBuffer.as<JsonObject>();
     Serial.println("clear");
     json["message"] = "Clearing EEPROM data and resetting";
     String output;
-    serializeJsonPretty(json, output);
+    serializeJsonPretty(jsonBuffer, output);
     server.send(200, "application/json", output);
 
     clearEEPROM();
@@ -155,6 +186,7 @@ void setup(void){
 
   server.on("/reset", [](){
     DynamicJsonDocument jsonBuffer(1024);
+    deserializeJson(jsonBuffer, "{}");
     JsonObject json = jsonBuffer.as<JsonObject>();
     json["message"] = "resetting";
     Serial.println("Resetting");
@@ -175,6 +207,7 @@ void setup(void){
 
   server.on("/config", [](){
     DynamicJsonDocument jsonBuffer(1024);
+    deserializeJson(jsonBuffer, "{}");
     JsonObject json = jsonBuffer.as<JsonObject>();
 
     int theSpeed = getData(51,55, DEFAULT_SPEED).toInt();
@@ -193,12 +226,13 @@ void setup(void){
 
 
     String output;
-    serializeJsonPretty(json, output);
+    serializeJsonPretty(jsonBuffer, output);
     server.send(200, "application/json", output);
   });
 
   server.on("/wifi", [](){
     DynamicJsonDocument jsonBuffer(1024);
+    deserializeJson(jsonBuffer, "{}");
     JsonObject json = jsonBuffer.as<JsonObject>();
     bool resetMe = false;
 
@@ -209,12 +243,10 @@ void setup(void){
     }
     json["ssid"] = aSsid;
 
-    String aPassword = getData(26,50, DEFAULT_WIFI_PASSWORD);
     if(server.hasArg("password")){
       aPassword = setData(26,50, server.arg("password"));
       resetMe = true;
     }
-    json["password"] = aPassword;
 
     String aHostname = getData(61,80, DEFAULT_HOSTNAME);
     if(server.hasArg("hostname")){
@@ -237,7 +269,7 @@ void setup(void){
     }
 
     String output;
-    serializeJsonPretty(json, output);
+    serializeJsonPretty(jsonBuffer, output);
     server.send(200, "application/json", output);
 
     if(resetMe){
@@ -247,6 +279,7 @@ void setup(void){
 
   server.on("/msg", [](){
     DynamicJsonDocument jsonBuffer(1024);
+    deserializeJson(jsonBuffer, "{}");
     JsonObject json = jsonBuffer.as<JsonObject>();
     Serial.println("message");
     String msg = "hello world!!!";
@@ -257,7 +290,7 @@ void setup(void){
     json["message"] = "Sent message to radio";
     json["text"] = msg;
     String output;
-    serializeJsonPretty(json, output);
+    serializeJsonPretty(jsonBuffer, output);
     server.send(200, "application/json", output);
   });
 
@@ -320,12 +353,7 @@ void openOrClose(int direction) {
   serializeJsonPretty(json, output);
   server.send(200, "application/json", output);
 
-  if(toSpin){
-    Servo1.attach(servoPin);
-    Servo1.write(dutyCycle); 
-    delay(theDuration); 
-    Servo1.detach();
-
+  if(toSpin) {
     setData(81,83,String(direction));
   }
 }
